@@ -2,8 +2,11 @@
 using BepInEx.Configuration;
 using HarmonyLib;
 using System;
+using System.Linq;
 using System.Security.Cryptography;
 using UnityEngine;
+using ZeepkistClient;
+using ZeepkistNetworking;
 using ZeepSDK.Cosmetics;
 using ZeepSDK.Racing;
 using ZeepSDK.Workshop;
@@ -20,7 +23,9 @@ namespace Zeepkist.RandomZeep
         public static ConfigEntry<bool> ChangeOnGameLoad { get; private set; }
         public static ConfigEntry<bool> ChangeOnMapLoad { get; private set; }
         public static ConfigEntry<bool> ChangeOnSpawn { get; private set; }
+        public static ConfigEntry<KeyCode> RandomizeKey { get; private set; }
 
+        public static SetupModelCar modelCar { get; set; }
         public static bool RandomizedAtStartup = false;
 
         private void Awake()
@@ -34,9 +39,19 @@ namespace Zeepkist.RandomZeep
             ChangeOnGameLoad = Config.Bind<bool>("Mod", "Change zeep at game start", true);
             ChangeOnMapLoad = Config.Bind<bool>("Mod", "Change zeep at map start", true);
             ChangeOnSpawn = Config.Bind<bool>("Mod", "Change zeep at spawn", false);
+            RandomizeKey = Config.Bind<KeyCode>("Mod", "Change zeep during race", KeyCode.L);
 
             RacingApi.LevelLoaded += RacingApi_LevelLoaded;
             RacingApi.PlayerSpawned += RacingApi_PlayerSpawned;
+        }
+
+        private void Update()
+        {
+            if (Input.GetKeyDown(Plugin.RandomizeKey.Value))
+            {
+                Debug.Log("Pressed the randomized key, randomizing now!");
+                Randomize();
+            }
         }
 
         public static void OnStartup()
@@ -85,6 +100,8 @@ namespace Zeepkist.RandomZeep
 
         public static void Randomize()
         {
+            PlayerManager.Instance.messenger.Log("Randomizing zeep", 1.0f);
+
             var hats = CosmeticsApi.GetUnlockedHats();
             var carts = CosmeticsApi.GetUnlockedZeepkists();
             var colors = CosmeticsApi.GetUnlockedColors();
@@ -98,6 +115,29 @@ namespace Zeepkist.RandomZeep
             PlayerManager.Instance.avontuurSoapbox = selectedCart;
             PlayerManager.Instance.avontuurColor = selectedColor;
             PlayerManager.Instance.avontuurHat = selectedHat;
+
+            // Reload during the main menu, online, or offline
+            if (modelCar != null && modelCar.soapbox != null)
+            {
+                modelCar.DoCarSetup(selectedCart, selectedHat, selectedColor, true, false, false);
+            }
+            // Reload only duriing online - backup call only
+            else if (PlayerManager.Instance?.currentMaster?.carSetups?.FirstOrDefault<SetupCar>() != null)
+            {
+                PlayerManager.Instance.currentMaster.carSetups.FirstOrDefault<SetupCar>().SetupSoapbox(selectedCart);
+                PlayerManager.Instance.currentMaster.carSetups.FirstOrDefault<SetupCar>().SetupCharacter(selectedHat, selectedColor);
+            }
+
+            // Send a packet to update in multiplayer
+            if (ZeepkistNetwork.IsConnectedToGame)
+            {
+                PlayerCosmeticsPacket packet = new PlayerCosmeticsPacket();
+                packet.ZeepkistID = PlayerManager.Instance.objectsList.wardrobe.GetZeepkistUnlocked(PlayerManager.Instance.avontuurSoapbox.GetCompleteID()).GetCompleteID();
+                packet.HatID = PlayerManager.Instance.objectsList.wardrobe.GetHatUnlocked(PlayerManager.Instance.avontuurHat.GetCompleteID()).GetCompleteID();
+                packet.ColorID = PlayerManager.Instance.objectsList.wardrobe.GetColorUnlocked(PlayerManager.Instance.avontuurColor.GetCompleteID()).GetCompleteID();
+                ZeepkistNetwork.NetworkClient?.SendPacket<PlayerCosmeticsPacket>(packet);
+            }
+
             Debug.Log("Finished applying randomized cosmetics");
         }
 
