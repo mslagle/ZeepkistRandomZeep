@@ -1,3 +1,6 @@
-# Zeepkist Unlock
+# Zeepkist Randomizer
 
-Unlocks all cosmetics and adventure levels.
+Randomizes your cosmetics
+- At game load
+- New level
+- Keypress
